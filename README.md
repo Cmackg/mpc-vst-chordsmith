@@ -14,7 +14,8 @@ It all runs on the device.
 **Status:** passes the offline tests (x86, ASan/UBSan), builds for armhf and, from 1.1.0, aarch64 (MPC
 Live III, MPC XL and other 64-bit MPCs: one folder holds both), and every function has been run on an MPC
 Key 37 (firmware 3.9.1.2) from the screen, pads and keys. 1.1.x runs on an MPC Live III (MPC OS 3.10.1),
-64-bit, with an external keyboard. The SETUP page shows the version that is actually running (top right).
+64-bit, with an external keyboard: 1.1.5 tested there, including keys that no longer stick and the bass on
+its own port. The SETUP page shows the version that is actually running (top right).
 
 ![Chordsmith on the device: pads, keys, chord sets, the chord builder, voicings, chord buttons, arpeggios and patterns, MIDI out](docs/chordsmith.gif)
 
