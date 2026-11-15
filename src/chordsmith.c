@@ -19,7 +19,7 @@
 
 #define SR 44100
 /* the version shown on SETUP, from the running code (not the skin), so a stale copy of the skin or plugin shows */
-#define CS_VERSION "1.1.4"
+#define CS_VERSION "1.1.5"
 #define TAP_MS 600            /* a screen tap holds its chord this long */
 #define QUIET_MS 500          /* ignore slot "taps" this long after create/state load (host restoring values) */
 #define NUM_IDS (128 + NUM_SLOTS)   /* input notes, then one id per screen slot */
@@ -45,7 +45,8 @@ enum {
     P_CTYPE, P_X6, P_XM7, P_XMAJ7, P_X9, P_PAD_BTNS, P_LATCH, P_VDIAL, P_PERFORM, P_RATE, P_BASS_CH,
     P_EDIT, P_CROOT, P_CQUAL = P_CROOT + NUM_SLOTS,   /* CUSTOM: root and quality per slot */
     P_INV = P_CQUAL + NUM_SLOTS,   /* each slot's inversion: 0 = AUTO (INVERSION / VOICE LEAD), 1..4 = root, 1st, 2nd, 3rd */
-    NUM_P = P_INV + NUM_SLOTS
+    P_BASS_PORT = P_INV + NUM_SLOTS,   /* the bass note on its own port, "Bass Out" (1.1.5) */
+    NUM_P
 };
 static const struct { const char *key; int min, max, def; } PDEF[NUM_P] = {
     {"key", 0, 11, 0}, {"scale", 0, NUM_SCALES - 1, SCALE_MAJOR}, {"source", 0, 2, 0},
@@ -65,6 +66,7 @@ static const struct { const char *key; int min, max, def; } PDEF[NUM_P] = {
     {"cust_qual_5", 0, 127, 0}, {"cust_qual_6", 0, 127, 0}, {"cust_qual_7", 0, 127, 0}, {"cust_qual_8", 0, 127, 0},
     {"inv_1", 0, 4, 0}, {"inv_2", 0, 4, 0}, {"inv_3", 0, 4, 0}, {"inv_4", 0, 4, 0},
     {"inv_5", 0, 4, 0}, {"inv_6", 0, 4, 0}, {"inv_7", 0, 4, 0}, {"inv_8", 0, 4, 0},
+    {"bass_port", 0, 1, 0},
 };
 enum { SRC_SCALE, SRC_SET, SRC_CUSTOM };
 enum { TRAIL_N = 8, TRAIL_LEN = 12 };
@@ -89,7 +91,7 @@ typedef struct {
     atomic_uint taps;         /* bit i: slot i tapped on screen */
     long now, quiet_until;
     held_t held[NUM_IDS];
-    unsigned char ref[16][128];
+    unsigned char ref[32][128];  /* notes sounding, per output (0-15: MIDI Out's channels, 16-31: Bass Out's) */
     voicing_t prev;
     char text[2][96];
     atomic_int text_idx;
@@ -138,14 +140,16 @@ static int flats(const inst_t *s) { return key_uses_flats(s->p[P_KEY], s->p[P_SO
 #define ECHO_FRAMES ((long)ECHO_MS * SR / 1000)
 #define LATE_FRAMES ((long)LATE_MS * SR / 1000)
 
-/* every note out goes through here, so the echo filter knows what may come back */
-static void send(inst_t *s, int ch, int n, int vel) {
+/* every note out goes through here, so the echo filter knows what may come back. ch: 0-15 a channel of
+ * MIDI Out, 16-31 of Bass Out (an echo comes back with just its channel, so both ports share the filter) */
+static void send(inst_t *s, int out, int n, int vel) {
+    int ch = out & 15;
     unsigned char *pend = vel ? s->pend_on[ch] : s->pend_off[ch];
     long *at = vel ? s->on_at[ch] : s->off_at[ch];
     if (s->now - at[n] > LATE_FRAMES) pend[n] = 0;   /* the earlier ones never came back (port not enabled) */
     if (pend[n] < 255) pend[n]++;
     at[n] = s->now;
-    seq_out_note(ch, n, vel);
+    seq_out_note(out >> 4, ch, n, vel);
 }
 
 /* an incoming note that is our own coming back (same channel and note, moments later): swallow it, once per
@@ -160,7 +164,7 @@ static int echoed(inst_t *s, int ch, int n, int on) {
     if (!pend[n] || s->now - at[n] > (ch == s->in_ch ? ECHO_FRAMES : LATE_FRAMES)) return 0;
     /* on the keys' own channel (MIDI OUT set to it) a key and an echo look alike: there an echoed on must
      * still be sounding, and a held key let go is a key whatever we sent */
-    if (ch == s->in_ch && (on ? !s->ref[ch][n] : s->held[n].active)) return 0;
+    if (ch == s->in_ch && (on ? !s->ref[ch][n] && !s->ref[ch + 16][n] : s->held[n].active)) return 0;
     pend[n]--;
     s->echo_seen = 1;
     return 1;
@@ -329,6 +333,7 @@ static void play_chord(inst_t *s, int id, int slot, const chord_t *c, int shift,
     h->root_kind = kind;
     h->root = root;
     int ch = clampi(s->p[P_CHANNEL], 1, 16) - 1, bass_ch = s->p[P_BASS_CH] ? s->p[P_BASS_CH] - 1 : ch;
+    if (s->p[P_BASS_PORT]) bass_ch += 16;   /* Bass Out */
     h->vel = s->p[P_VEL_MODE] == 1 ? s->p[P_VELOCITY] : clampi(vel, 1, 127);
     h->release_at = release_at;
     h->perform = clampi(s->p[P_PERFORM], 0, NUM_PERFORM - 1);
@@ -530,7 +535,7 @@ static void panic(inst_t *s) {
     s->echo_clash = 0;
     s->echo_seen = 0;
     synth_all_off(&s->synth);
-    for (int ch = 0; ch < 16; ch++)
+    for (int ch = 0; ch < 32; ch++)
         for (int n = 0; n < 128; n++)
             if (s->ref[ch][n]) { s->ref[ch][n] = 0; send(s, ch, n, 0); }
 }
@@ -734,7 +739,9 @@ static int get_param(void *inst, const char *key, char *buf, int len) {
         if (s->echo_clash) return snprintf(buf, len, "MIDI CH %d IS THE KEYS' CHANNEL: CHANGE IT", ch) + 1;
         if (!s->port_ok) return snprintf(buf, len, "%s", s->p[P_SOUND] ? "PREVIEW SYNTH ONLY (NO MIDI PORT)"
                                                                        : "SILENT: NO MIDI PORT, PREVIEW SYNTH OFF") + 1;
-        if (s->p[P_SOUND]) return snprintf(buf, len, "PREVIEW SYNTH + MIDI OUT CH %d", ch) + 1;
+        const char *bass = s->p[P_BASS] && s->p[P_BASS_PORT] ? " + BASS OUT" : "";
+        if (s->p[P_SOUND]) return snprintf(buf, len, "PREVIEW SYNTH + MIDI OUT CH %d%s", ch, bass) + 1;
+        if (*bass) return snprintf(buf, len, "MIDI OUT CH %d + BASS OUT (PREVIEW SYNTH OFF)", ch) + 1;
         return snprintf(buf, len, "MIDI OUT CH %d ONLY (PREVIEW SYNTH OFF)", ch) + 1;
     }
     if (!strcmp(key, "buttons_hint")) {

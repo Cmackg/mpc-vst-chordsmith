@@ -174,11 +174,13 @@ static void test_buttons(void) {
 
 /* ---- engine, through the capture sink ---- */
 static int ev_n, ev[256][3];
-static void sink(int ch, int note, int vel) { if (ev_n < 256) { ev[ev_n][0] = ch; ev[ev_n][1] = note; ev[ev_n][2] = vel; ev_n++; } }
+static int ev_port[256];   /* 0 MIDI Out, 1 Bass Out */
+static void sink(int port, int ch, int note, int vel) { if (ev_n < 256) { ev_port[ev_n] = port; ev[ev_n][0] = ch; ev[ev_n][1] = note; ev[ev_n][2] = vel; ev_n++; } }
 static int16_t blk[256];
 static void run(const mpc_engine_t *e, void *s, int blocks) { while (blocks--) e->render(s, blk, 128); }
 static void send(const mpc_engine_t *e, void *s, int st, int n, int v) { uint8_t m[3] = {(uint8_t)st, (uint8_t)n, (uint8_t)v}; e->midi(s, m, 3); }
 static int find_on(int note) { for (int i = 0; i < ev_n; i++) if (ev[i][1] == note && ev[i][2]) return i; return -1; }
+static int find_off(int note) { for (int i = 0; i < ev_n; i++) if (ev[i][1] == note && !ev[i][2]) return i; return 0; }
 static int ons(void) { int n = 0; for (int i = 0; i < ev_n; i++) n += ev[i][2] > 0; return n; }
 static int offs(void) { int n = 0; for (int i = 0; i < ev_n; i++) n += ev[i][2] == 0; return n; }
 
@@ -556,6 +558,32 @@ static void test_perform(void) {
     ev_n = 0;
     send(e, s, 0x80, 60, 0); run(e, s, 1);
     CHECK(offs() == 4 && ev[0][0] == 4, "bass note off on ch5");
+    CHECK(ev_port[0] == 0 && ev_port[1] == 0, "BASS PORT off: the bass on MIDI Out too");
+    /* BASS PORT: the bass on Bass Out (MPC's track filter ignores a plugin port's channels, so route by port) */
+    e->set_param(s, "bass_port", "1");
+    ev_n = 0;
+    send(e, s, 0x90, 60, 100); run(e, s, 1);
+    int bass_ok = ons() == 4, chord_ok = 1;
+    for (int i = 0; i < ev_n; i++) {
+        if (ev[i][1] == 36) bass_ok &= ev_port[i] == 1 && ev[i][0] == 4;
+        else chord_ok &= ev_port[i] == 0 && ev[i][0] == 1;
+    }
+    CHECK(bass_ok && chord_ok, "BASS PORT: bass C2 on Bass Out ch5, chord on MIDI Out ch2");
+    e->get_param(s, "output", buf, sizeof buf); CHECK(strstr(buf, "BASS OUT") != NULL && strlen(buf) <= 47, "output says Bass Out '%s'", buf);
+    ev_n = 0;
+    send(e, s, 0x80, 60, 0); run(e, s, 1);
+    CHECK(offs() == 4 && ev_port[find_off(36)] == 1, "bass note off on Bass Out");
+    e->set_param(s, "bass_ch", "0");   /* SAME: Bass Out on the chords' channel */
+    ev_n = 0;
+    send(e, s, 0x90, 60, 100); run(e, s, 1);
+    CHECK(ev_port[0] == 1 && ev[0][0] == 1 && ev[0][1] == 36, "bass SAME channel on Bass Out (port %d ch %d)", ev_port[0], ev[0][0] + 1);
+    send(e, s, 0x80, 60, 0); run(e, s, 1);
+    ev_n = 0;
+    send(e, s, 0x90, 60, 100); run(e, s, 1);   /* ALL NOTES OFF reaches Bass Out too */
+    ev_n = 0;
+    e->set_param(s, "panic", "1"); run(e, s, 1);
+    CHECK(offs() == 4 && ev_port[find_off(36)] == 1, "ALL NOTES OFF ends the bass on Bass Out (%d off)", offs());
+    e->set_param(s, "bass_port", "0");
     e->set_param(s, "bass", "0"); e->set_param(s, "bass_ch", "0");
     e->get_param(s, "bass_ch_name", buf, sizeof buf); CHECK(!strcmp(buf, "SAME"), "bass_ch_name '%s'", buf);
 

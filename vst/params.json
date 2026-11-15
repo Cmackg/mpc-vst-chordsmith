@@ -747,6 +747,16 @@
       "name": "Version",
       "display": "string",
       "type": "readout"
+    },
+    {
+      "key": "bass_port",
+      "name": "Bass Port",
+      "options": [
+        "Off",
+        "On"
+      ],
+      "default": 0,
+      "qlink_ticks": 6
     }
   ]
 }

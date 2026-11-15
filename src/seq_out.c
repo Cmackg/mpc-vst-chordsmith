@@ -6,6 +6,7 @@
 
 #define CLIENT_NAME "Chordsmith"
 #define PORT_NAME "MIDI Out"
+#define BASS_PORT_NAME "Bass Out"
 
 /* The parts of alsa/asoundlib.h used here. This ABI (snd_seq_event_t is 28 bytes) has not changed
  * since ALSA 1.0; tests/theory_test.c checks it against the real header where one is installed. */
@@ -40,7 +41,7 @@ static struct {
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static void *lib;
 static snd_seq_t *seq;
-static int port = -1, users;
+static int port[2] = {-1, -1}, users;
 static const char *status = "MIDI OUT: OFF";
 static seq_out_sink_t sink;
 
@@ -70,8 +71,10 @@ int seq_out_acquire(void) {
         else if (A.open(&seq, "default", SEQ_OPEN_OUTPUT, SEQ_NONBLOCK) < 0) { seq = NULL; status = "MIDI OUT: NO SEQUENCER"; }
         else {
             A.set_client_name(seq, CLIENT_NAME);
-            port = A.create_simple_port(seq, PORT_NAME, CAP_READ | CAP_SUBS_READ, TYPE_MIDI_GENERIC | TYPE_APPLICATION);
-            if (port < 0) { A.close(seq); seq = NULL; status = "MIDI OUT: NO PORT"; }
+            port[0] = A.create_simple_port(seq, PORT_NAME, CAP_READ | CAP_SUBS_READ, TYPE_MIDI_GENERIC | TYPE_APPLICATION);
+            port[1] = A.create_simple_port(seq, BASS_PORT_NAME, CAP_READ | CAP_SUBS_READ, TYPE_MIDI_GENERIC | TYPE_APPLICATION);
+            if (port[0] < 0) { A.close(seq); seq = NULL; port[1] = -1; status = "MIDI OUT: NO PORT"; }
+            else if (port[1] < 0) status = "MIDI OUT: NO BASS PORT";
             else status = "MIDI OUT: PORT READY";   /* value text is cut at 23 characters */
         }
     }
@@ -85,21 +88,22 @@ void seq_out_release(void) {
     if (users > 0 && --users == 0 && seq) {
         A.close(seq);
         seq = NULL;
-        port = -1;
+        port[0] = port[1] = -1;
         status = "MIDI OUT: OFF";
     }
     pthread_mutex_unlock(&lock);
 }
 
 /* Audio thread. No lock: seq only changes when the first instance is created or the last destroyed. */
-void seq_out_note(int ch, int note, int vel) {
-    if (sink) { sink(ch, note, vel); return; }
-    if (!seq || note < 0 || note > 127) return;
+void seq_out_note(int p, int ch, int note, int vel) {
+    if (sink) { sink(p, ch, note, vel); return; }
+    p = p ? 1 : 0;
+    if (!seq || port[p] < 0 || note < 0 || note > 127) return;
     seq_event_t ev;
     memset(&ev, 0, sizeof ev);
     ev.type = vel > 0 ? EV_NOTEON : EV_NOTEOFF;
     ev.queue = QUEUE_DIRECT;
-    ev.source.port = (unsigned char)port;
+    ev.source.port = (unsigned char)port[p];
     ev.dest.client = ADDR_SUBSCRIBERS;
     ev.dest.port = ADDR_UNKNOWN;
     ev.data.note.channel = (unsigned char)(ch & 15);

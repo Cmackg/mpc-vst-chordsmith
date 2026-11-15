@@ -92,6 +92,14 @@ and the chord hangs until ALL NOTES OFF. Key C at OCTAVE 0 or +1, for example, p
 in it. From 1.1.4 a chord never sends the number of a key that is down: that one chord note moves an octave
 (up if it can), and a chord already sounding moves its note off a key the moment you press it.
 
+**Bass on its own instrument.** MPC OS 3.10.1 (seen on a Live III) ignores a track's MIDI input channel for
+notes from a plugin's port: a track set to "Chordsmith MIDI Out, channel 3" plays nothing, and on channel Any
+it plays everything. So from 1.1.5 the bass can have its own port. PERFORM → **BASS PORT** on (with BASS NOTE
+on) sends the bass note out of **Chordsmith Bass Out** and the chord out of Chordsmith MIDI Out. Enable
+**Track** for both ports in Preferences → MIDI, then set the chord instrument's MIDI input to Chordsmith MIDI
+Out and the bass instrument's to Chordsmith Bass Out, both on channel **Any**. BASS CHANNEL still sets the
+bass's channel (SAME = the chords' channel).
+
 **If nothing reaches the instrument, or things stick after installing or updating:** keep just one copy of the
 plugin folder across all drives (MPC may load another copy's skin or code; SETUP shows the version running),
 then in Preferences → MIDI reset the Chordsmith MIDI Out port (the ↺ button) and turn **Track** back on, and
