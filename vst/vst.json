@@ -2,13 +2,14 @@
   "name": "Chordsmith",
   "vendor": "jacob-sabella",
   "uid": "ChSm",
-  "version": 1001,
+  "version": 1100,
   "so": "chordsmith.so",
   "params": "params.json",
   "layout": "layout.conf",
   "art": "html",
   "tile": "art/chordsmith_tile_270x110.png",
   "defines": {"HAS_LFO_BPM": 1},
+  "targets": ["armv7", "aarch64"],
   "build": {
     "root": "..",
     "sources": [

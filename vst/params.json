@@ -645,6 +645,102 @@
       "name": "Played",
       "display": "string",
       "type": "readout"
+    },
+    {
+      "key": "inv_1",
+      "name": "Chord 1 Inv",
+      "options": [
+        "Auto",
+        "Root",
+        "1st",
+        "2nd",
+        "3rd"
+      ],
+      "default": 0
+    },
+    {
+      "key": "inv_2",
+      "name": "Chord 2 Inv",
+      "options": [
+        "Auto",
+        "Root",
+        "1st",
+        "2nd",
+        "3rd"
+      ],
+      "default": 0
+    },
+    {
+      "key": "inv_3",
+      "name": "Chord 3 Inv",
+      "options": [
+        "Auto",
+        "Root",
+        "1st",
+        "2nd",
+        "3rd"
+      ],
+      "default": 0
+    },
+    {
+      "key": "inv_4",
+      "name": "Chord 4 Inv",
+      "options": [
+        "Auto",
+        "Root",
+        "1st",
+        "2nd",
+        "3rd"
+      ],
+      "default": 0
+    },
+    {
+      "key": "inv_5",
+      "name": "Chord 5 Inv",
+      "options": [
+        "Auto",
+        "Root",
+        "1st",
+        "2nd",
+        "3rd"
+      ],
+      "default": 0
+    },
+    {
+      "key": "inv_6",
+      "name": "Chord 6 Inv",
+      "options": [
+        "Auto",
+        "Root",
+        "1st",
+        "2nd",
+        "3rd"
+      ],
+      "default": 0
+    },
+    {
+      "key": "inv_7",
+      "name": "Chord 7 Inv",
+      "options": [
+        "Auto",
+        "Root",
+        "1st",
+        "2nd",
+        "3rd"
+      ],
+      "default": 0
+    },
+    {
+      "key": "inv_8",
+      "name": "Chord 8 Inv",
+      "options": [
+        "Auto",
+        "Root",
+        "1st",
+        "2nd",
+        "3rd"
+      ],
+      "default": 0
     }
   ]
 }

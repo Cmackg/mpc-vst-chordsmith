@@ -41,7 +41,9 @@ enum {
     P_STRUM, P_STRUM_DIR, P_VEL_MODE, P_VELOCITY, P_INPUT, P_PAD_BASE, P_CHANNEL,
     P_KEY_MAP, P_SPLIT, P_SPLIT_NOTE, P_SOUND, P_LEVEL,
     P_CTYPE, P_X6, P_XM7, P_XMAJ7, P_X9, P_PAD_BTNS, P_LATCH, P_VDIAL, P_PERFORM, P_RATE, P_BASS_CH,
-    P_EDIT, P_CROOT, P_CQUAL = P_CROOT + NUM_SLOTS, NUM_P = P_CQUAL + NUM_SLOTS   /* CUSTOM: root and quality per slot */
+    P_EDIT, P_CROOT, P_CQUAL = P_CROOT + NUM_SLOTS,   /* CUSTOM: root and quality per slot */
+    P_INV = P_CQUAL + NUM_SLOTS,   /* each slot's inversion: 0 = AUTO (INVERSION / VOICE LEAD), 1..4 = root, 1st, 2nd, 3rd */
+    NUM_P = P_INV + NUM_SLOTS
 };
 static const struct { const char *key; int min, max, def; } PDEF[NUM_P] = {
     {"key", 0, 11, 0}, {"scale", 0, NUM_SCALES - 1, SCALE_MAJOR}, {"source", 0, 2, 0},
@@ -59,6 +61,8 @@ static const struct { const char *key; int min, max, def; } PDEF[NUM_P] = {
     {"cust_root_5", 0, 11, 0}, {"cust_root_6", 0, 11, 0}, {"cust_root_7", 0, 11, 0}, {"cust_root_8", 0, 11, 0},
     {"cust_qual_1", 0, 127, 0}, {"cust_qual_2", 0, 127, 0}, {"cust_qual_3", 0, 127, 0}, {"cust_qual_4", 0, 127, 0},
     {"cust_qual_5", 0, 127, 0}, {"cust_qual_6", 0, 127, 0}, {"cust_qual_7", 0, 127, 0}, {"cust_qual_8", 0, 127, 0},
+    {"inv_1", 0, 4, 0}, {"inv_2", 0, 4, 0}, {"inv_3", 0, 4, 0}, {"inv_4", 0, 4, 0},
+    {"inv_5", 0, 4, 0}, {"inv_6", 0, 4, 0}, {"inv_7", 0, 4, 0}, {"inv_8", 0, 4, 0},
 };
 enum { SRC_SCALE, SRC_SET, SRC_CUSTOM };
 enum { TRAIL_N = 8, TRAIL_LEN = 12 };
@@ -271,7 +275,10 @@ static void play_chord(inst_t *s, int id, int slot, const chord_t *c, int shift,
     int kind = s->held[id].root_kind, root = s->held[id].root;   /* kept across a re-chord */
     release(s, id);
     if (c->n <= 0) return;
-    voice_opts_t o = {s->p[P_VOICING], s->p[P_INVERSION], s->p[P_OCTAVE] - 2, s->p[P_BASS], s->p[P_VOICE_LEAD]};
+    /* the slot's own inversion, if it has one, beats INVERSION and VOICE LEAD for this chord; AUTO leaves both as set */
+    int inv = s->p[P_INVERSION], lead = s->p[P_VOICE_LEAD];
+    if (slot >= 0 && slot < NUM_SLOTS && s->p[P_INV + slot] > 0) { inv = s->p[P_INV + slot] - 1; lead = 0; }
+    voice_opts_t o = {s->p[P_VOICING], inv, s->p[P_OCTAVE] - 2, s->p[P_BASS], lead};
     voice_chord(c, &o, &s->prev, &v);
     s->prev = v;
     dial(&v, s->p[P_VDIAL], s->p[P_BASS]);

@@ -11,8 +11,10 @@ chord set, or eight chords of your own), and pads or keys play full chords; or b
 held type and extension buttons, and play them strummed, arpeggiated or in a rhythm in time with the project.
 It all runs on the device.
 
-**Status:** passes the offline tests (x86, ASan/UBSan), builds for armhf, and every function has been run
-on an MPC Key 37 (firmware 3.9.1.2) from the screen, pads and keys.
+**Status:** passes the offline tests (x86, ASan/UBSan), builds for armhf and, from 1.1.0, aarch64 (MPC
+Live III, MPC XL and other 64-bit MPCs: one folder holds both), and every function has been run on an MPC
+Key 37 (firmware 3.9.1.2) from the screen, pads and keys. The 64-bit build and per-chord inversions (1.1.0)
+have not been run on a device yet.
 
 ![Chordsmith on the device: pads, keys, chord sets, the chord builder, voicings, chord buttons, arpeggios and patterns, MIDI out](docs/chordsmith.gif)
 
@@ -34,7 +36,10 @@ from a script: [docs/chordsmith.mp4](docs/chordsmith.mp4) (two minutes, with cap
   it sounds, whether a pad, a key or a tap played it. Under them, the PLAYED line lists the last chords in
   order and the bottom line names what just played, note by note.
 - **VOICE**: close, drop 2, drop 3 or spread voicings, inversions, octave, a bass note, and **voice
-  leading** (each chord takes the inversion nearest the last one). Strum (0-100 ms between notes, up or
+  leading** (each chord takes the inversion nearest the last one). **INVERSION PER CHORD** gives each of
+  the eight chords (pads 1-8, the tiles, keys C-B) its own: AUTO leaves it to INVERSION and VOICE LEAD,
+  ROOT, 1ST, 2ND or 3RD fix it for that chord whatever VOICE LEAD would pick (a triad has no 3rd
+  inversion: 3RD plays it in root position). Saved with the project. Strum (0-100 ms between notes, up or
   down) and played or fixed velocity.
 - **BUTTONS**: with PLAY FROM = BUTTONS, build each chord from a root and buttons, the way a chord keyboard
   works: hold a chord type (DIM, MIN, MAJ, SUS4) and any extensions (6, m7, maj7, 9) and play a root. With no

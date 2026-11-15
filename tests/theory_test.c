@@ -706,6 +706,66 @@ static void test_synth_load(void) {
     e->destroy(s);
 }
 
+/* ---- inversion per chord: inv_1..inv_8 (0 = AUTO, 1..4 = root, 1st, 2nd, 3rd) ---- */
+static int lowest_on(void) { int lo = 999; for (int i = 0; i < ev_n; i++) if (ev[i][2] && ev[i][1] < lo) lo = ev[i][1]; return lo; }
+static void tap_pad(const mpc_engine_t *e, void *s, int note) {   /* press, render, release, render, collect the press */
+    ev_n = 0; send(e, s, 0x90, note, 100); run(e, s, 2);
+    int lo = lowest_on(), n = ons();
+    send(e, s, 0x80, note, 0); run(e, s, 2);
+    ev_n = 0; ev[0][1] = lo; ev[0][2] = n;   /* stash: lowest note, how many */
+}
+static void test_inversion(void) {
+    const mpc_engine_t *e = mpc_engine();
+    static char buf[4096];
+    seq_out_set_sink(sink);
+    void *s = e->create(NULL);
+    run(e, s, 200);                                       /* past the quiet time after create */
+    e->set_param(s, "voice_lead", "0");
+    /* pad 1 (note 36) is Cmaj7 = C3 E3 G3 B3 (48 52 55 59) */
+    tap_pad(e, s, 36); CHECK(ev[0][1] == 48 && ev[0][2] == 4, "inv AUTO, root position: lowest %d (want C3 48)", ev[0][1]);
+    e->set_param(s, "inv_1", "2");
+    tap_pad(e, s, 36); CHECK(ev[0][1] == 52 && ev[0][2] == 4, "chord 1 at 1ST: lowest %d (want E3 52)", ev[0][1]);
+    e->set_param(s, "inv_1", "3");
+    tap_pad(e, s, 36); CHECK(ev[0][1] == 55, "chord 1 at 2ND: lowest %d (want G3 55)", ev[0][1]);
+    e->set_param(s, "inv_1", "4");
+    tap_pad(e, s, 36); CHECK(ev[0][1] == 59, "chord 1 at 3RD: lowest %d (want B3 59)", ev[0][1]);
+    e->set_param(s, "inv_1", "1");
+    tap_pad(e, s, 36); CHECK(ev[0][1] == 48, "chord 1 at ROOT: lowest %d (want C3 48)", ev[0][1]);
+    /* only that chord: pad 2 (Dm7 = D3..) stays in root position */
+    e->set_param(s, "inv_1", "2");
+    tap_pad(e, s, 37); CHECK(ev[0][1] == 50, "chord 2 untouched by chord 1's inversion: lowest %d (want D3 50)", ev[0][1]);
+    /* an explicit inversion beats VOICE LEAD; AUTO still follows it */
+    e->set_param(s, "voice_lead", "1");
+    tap_pad(e, s, 41);                                    /* pad 6 (Am7) first, so leading has somewhere to come from */
+    tap_pad(e, s, 36); CHECK(ev[0][1] % 12 == 4, "chord 1 at 1ST with VOICE LEAD on: lowest %d is E", ev[0][1]);
+    e->set_param(s, "inv_1", "0");
+    tap_pad(e, s, 41); tap_pad(e, s, 36);
+    int led = ev[0][1];
+    e->set_param(s, "voice_lead", "0"); e->set_param(s, "inversion", "1");
+    tap_pad(e, s, 36); CHECK(ev[0][1] == 52, "AUTO follows the global INVERSION (1ST): lowest %d (want 52)", ev[0][1]);
+    CHECK(led >= 40 && led <= 72, "AUTO with VOICE LEAD voices it near the last chord: lowest %d", led);
+    e->set_param(s, "inversion", "0");
+    /* the keys: white key C plays chord 1, with its inversion */
+    e->set_param(s, "inv_1", "3"); e->set_param(s, "input", "1");
+    tap_pad(e, s, 60); CHECK(ev[0][1] % 12 == 7, "key C plays chord 1 at 2ND: lowest %d is G", ev[0][1]);
+    e->set_param(s, "input", "0");
+    /* saved with the project, and an older project (no inv_ keys) loads as AUTO */
+    e->get_param(s, "state", buf, sizeof buf);
+    CHECK(strstr(buf, "inv_1=3;") != NULL, "state saves inv_1 ('%.60s...')", strstr(buf, "inv_") ? strstr(buf, "inv_") : buf);
+    void *s2 = e->create(NULL);
+    e->set_param(s2, "state", buf); run(e, s2, 200); e->set_param(s2, "voice_lead", "0");
+    tap_pad(e, s2, 36); CHECK(ev[0][1] == 55, "restored project: chord 1 at 2ND, lowest %d (want 55)", ev[0][1]);
+    static char old[4096];
+    snprintf(old, sizeof old, "%s", buf);
+    char *p = strstr(old, "inv_1=");
+    if (p) *p = 0;                                        /* cut every inv_ key off: an older project */
+    void *s3 = e->create(NULL);
+    e->set_param(s3, "state", old); run(e, s3, 200); e->set_param(s3, "voice_lead", "0");
+    e->get_param(s3, "inv_1", buf, sizeof buf); CHECK(atoi(buf) == 0, "older project: inv_1 is AUTO (%s)", buf);
+    e->destroy(s); e->destroy(s2); e->destroy(s3);
+    seq_out_set_sink(NULL);
+}
+
 int main(void) {
 #ifdef HAVE_ALSA
     CHECK(sizeof(snd_seq_event_t) == 28, "snd_seq_event_t is %zu bytes", sizeof(snd_seq_event_t));
@@ -719,6 +779,7 @@ int main(void) {
     test_perform();
     test_late_echo();
     test_synth_load();
+    test_inversion();
     printf("%s\n", fails ? "FAILED" : "PASSED");
     return fails ? 1 : 0;
 }
