@@ -537,9 +537,9 @@ static void test_perform(void) {
     /* VOICING dial: +1 moves the bottom note up an octave (C E G -> E G C), -1 the top one down */
     e->set_param(s, "voice_dial", "1");
     ev_n = 0;
-    send(e, s, 0x90, 60, 100); run(e, s, 1);
-    CHECK(ons() == 3 && ev[0][1] == 52 && find_on(60) >= 0, "dial +1: E G C (%d)", ev[0][1]);
-    send(e, s, 0x80, 60, 0); run(e, s, 1);
+    send(e, s, 0x90, 84, 100); run(e, s, 1);   /* C an octave up (C4 would be the key's own note, see below) */
+    CHECK(ons() == 3 && ev[0][1] == 64 && find_on(72) >= 0, "dial +1: E G C (%d)", ev[0][1]);
+    send(e, s, 0x80, 84, 0); run(e, s, 1);
     e->set_param(s, "voice_dial", "-1");
     ev_n = 0;
     send(e, s, 0x90, 60, 100); run(e, s, 1);
@@ -610,26 +610,20 @@ static void test_perform(void) {
     send(e, s, 0x80, 60, 0); run(e, s, 1);
     e->set_param(s, "perform", "0");
 
-    /* echo clash: output on the keys' channel and a chord holding the key's own note */
+    /* a chord never holds the key's own note: MPC merges the two and the key's note-off is lost (Live III, 1.1.4).
+     * Key C4 at OCTAVE +1 is Cmaj7 C4 E4 G4 B4: its C goes up to C5. With it gone, even output on the keys'
+     * channel with every echo coming back is no clash. */
     e->set_param(s, "input", "1"); e->set_param(s, "channel", "1"); e->set_param(s, "octave", "3");
-    send(e, s, 0x90, 60, 100); run(e, s, 1);   /* Cmaj7 C4 E4 G4 B4: C4 is the key */
-    send(e, s, 0x90, 60, 100); run(e, s, 1);   /* MPC sends it straight back */
-    e->get_param(s, "status", buf, sizeof buf); CHECK(strstr(buf, "SAME CH") != NULL && strlen(buf) < 24, "echo clash warned '%s'", buf);
-    e->get_param(s, "output", buf, sizeof buf); CHECK(strstr(buf, "KEYS' CHANNEL") != NULL && strlen(buf) < 48, "output warns too '%s'", buf);
-    send(e, s, 0x80, 60, 0); run(e, s, 1);
-    e->set_param(s, "channel", "2");
-    e->get_param(s, "status", buf, sizeof buf); CHECK(!strcmp(buf, "MIDI OUT: TEST"), "another channel clears it '%s'", buf);
-    /* what the device really does: the merged note's echo never comes back at all, only the other notes' do
-     * (and the key's note-off is lost). The missing echo is the tell, once the others are in. */
-    e->set_param(s, "channel", "1");
     ev_n = 0;
     send(e, s, 0x90, 60, 100); run(e, s, 1);
-    CHECK(ons() == 4 && find_on(60) >= 0, "clash chord holds the key's note (%d on)", ons());
-    for (int i = 0; i < ev_n; i++) if (ev[i][1] != 60) send(e, s, 0x90 | ev[i][0], ev[i][1], ev[i][2]);
-    run(e, s, 2);
-    e->get_param(s, "output", buf, sizeof buf); CHECK(strstr(buf, "KEYS' CHANNEL") == NULL, "no warning before the echo window is up '%s'", buf);
-    run(e, s, 100);   /* 290 ms: past ECHO_MS */
-    e->get_param(s, "output", buf, sizeof buf); CHECK(strstr(buf, "KEYS' CHANNEL") != NULL, "a missing echo warns '%s'", buf);
+    CHECK(ons() == 4 && find_on(60) < 0 && find_on(72) >= 0, "key C4: the chord's C moves to C5 (%d on)", ons());
+    int n0 = ev_n, echo[16][3];
+    memcpy(echo, ev, sizeof echo[0] * (n0 < 16 ? n0 : 16));
+    for (int i = 0; i < n0 && i < 16; i++) send(e, s, 0x90 | echo[i][0], echo[i][1], echo[i][2]);
+    run(e, s, 120);
+    e->get_param(s, "output", buf, sizeof buf); CHECK(strstr(buf, "KEYS' CHANNEL") == NULL, "every echo back: no warning '%s'", buf);
+    CHECK(ev_n == n0, "the echoes play nothing (%d events, want %d)", ev_n, n0);
+    send(e, s, 0x80, 60, 0); run(e, s, 1);
     e->set_param(s, "channel", "2"); e->set_param(s, "octave", "2"); e->set_param(s, "input", "0");
     send(e, s, 0x80, 60, 0); run(e, s, 1);
     /* no echoes at all (port not enabled as an input): nothing to warn about */
@@ -766,6 +760,49 @@ static void test_inversion(void) {
     seq_out_set_sink(NULL);
 }
 
+/* MPC merges a note Chordsmith sends with a key held on the same number (any port or channel), and that key's
+ * note-off is lost: the chord hangs. Random playing on the keys, every OCTAVE, KEY MAP and PERFORM mode: a key
+ * that is down is never also sounding from Chordsmith, and everything ends off. */
+static void test_held_keys(void) {
+    const mpc_engine_t *e = mpc_engine();
+    seq_out_set_sink(sink);
+    unsigned r = 7;
+    int clash = 0, presses = 0, moved_ok = 1;
+    for (int cfg = 0; cfg < 5 * 2 * 9; cfg++) {
+        void *s = e->create(NULL);
+        run(e, s, 200);
+        char v[16];
+        e->set_param(s, "input", "1");
+        snprintf(v, sizeof v, "%d", cfg % 5); e->set_param(s, "octave", v);
+        snprintf(v, sizeof v, "%d", cfg / 5 % 2); e->set_param(s, "key_map", v);
+        snprintf(v, sizeof v, "%d", cfg / 10); e->set_param(s, "perform", v);
+        e->set_param(s, "bass", cfg & 1 ? "1" : "0");
+        static unsigned char snd[16][128];
+        memset(snd, 0, sizeof snd);
+        int down[128] = {0}, ndown = 0;
+        for (int step = 0; step < 600; step++) {
+            r = r * 1103515245u + 12345u;
+            int k = 36 + (int)(r >> 16) % 48;
+            ev_n = 0;
+            if (!down[k] && ndown < 4) { send(e, s, 0x90, k, 100); down[k] = 1; ndown++; presses++; }
+            else if (down[k]) { send(e, s, 0x80, k, 0); down[k] = 0; ndown--; }
+            run(e, s, 1 + (int)(r >> 8) % 4);
+            for (int i = 0; i < ev_n; i++) snd[ev[i][0] & 15][ev[i][1]] = ev[i][2] > 0;
+            for (int n = 0; n < 128; n++)
+                for (int ch = 0; ch < 16; ch++)
+                    if (down[n] && snd[ch][n]) { if (!clash) printf("  clash: cfg %d step %d key %d ch %d\n", cfg, step, n, ch + 1); clash++; }
+        }
+        for (int n = 0; n < 128; n++) if (down[n]) { ev_n = 0; send(e, s, 0x80, n, 0); run(e, s, 1);
+            for (int i = 0; i < ev_n; i++) snd[ev[i][0] & 15][ev[i][1]] = ev[i][2] > 0; }
+        run(e, s, 400);
+        for (int ch = 0; ch < 16; ch++) for (int n = 0; n < 128; n++) if (snd[ch][n]) moved_ok = 0;
+        e->destroy(s);
+    }
+    CHECK(clash == 0, "a held key's number is never sounding from Chordsmith (%d clashes in %d presses)", clash, presses);
+    CHECK(moved_ok, "every note ends off after the keys are let go");
+    seq_out_set_sink(NULL);
+}
+
 int main(void) {
 #ifdef HAVE_ALSA
     CHECK(sizeof(snd_seq_event_t) == 28, "snd_seq_event_t is %zu bytes", sizeof(snd_seq_event_t));
@@ -780,6 +817,7 @@ int main(void) {
     test_late_echo();
     test_synth_load();
     test_inversion();
+    test_held_keys();
     printf("%s\n", fails ? "FAILED" : "PASSED");
     return fails ? 1 : 0;
 }

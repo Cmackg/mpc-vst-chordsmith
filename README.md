@@ -13,8 +13,8 @@ It all runs on the device.
 
 **Status:** passes the offline tests (x86, ASan/UBSan), builds for armhf and, from 1.1.0, aarch64 (MPC
 Live III, MPC XL and other 64-bit MPCs: one folder holds both), and every function has been run on an MPC
-Key 37 (firmware 3.9.1.2) from the screen, pads and keys. The 64-bit build and per-chord inversions (1.1.0)
-have not been run on a device yet.
+Key 37 (firmware 3.9.1.2) from the screen, pads and keys. 1.1.x runs on an MPC Live III (MPC OS 3.10.1),
+64-bit, with an external keyboard. The SETUP page shows the version that is actually running (top right).
 
 ![Chordsmith on the device: pads, keys, chord sets, the chord builder, voicings, chord buttons, arpeggios and patterns, MIDI out](docs/chordsmith.gif)
 
@@ -85,6 +85,17 @@ track. It ignores them, but MPC merges an echoed note with a key you're holding 
 channel, and then that key's release never arrives and its chord hangs. That's why Chordsmith sends on
 channel 2 by default (your keys play on channel 1). If you set the MIDI channel to the one your keys use, the
 output line on PLAY says `MIDI CH 1 IS THE KEYS' CHANNEL: CHANGE IT` when that happens.
+
+On an MPC Live III (MPC OS 3.10.1) the merge goes further: a note Chordsmith sends merges with a key held on
+the same note number on **any** channel or port, and that key's release is lost, so its chord tile stays lit
+and the chord hangs until ALL NOTES OFF. Key C at OCTAVE 0 or +1, for example, plays a chord with that very C
+in it. From 1.1.4 a chord never sends the number of a key that is down: that one chord note moves an octave
+(up if it can), and a chord already sounding moves its note off a key the moment you press it.
+
+**If nothing reaches the instrument, or things stick after installing or updating:** keep just one copy of the
+plugin folder across all drives (MPC may load another copy's skin or code; SETUP shows the version running),
+then in Preferences → MIDI reset the Chordsmith MIDI Out port (the ↺ button) and turn **Track** back on, and
+restart or start a new project.
 
 PAD 1 NOTE has to match the notes your pads send. MPC's pad modes (a scale layout, for example) send other
 notes, so set the track's pads to plain chromatic notes from PAD 1 NOTE (36 = C1 by default) for PADS and

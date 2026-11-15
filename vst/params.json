@@ -741,6 +741,12 @@
         "3rd"
       ],
       "default": 0
+    },
+    {
+      "key": "version",
+      "name": "Version",
+      "display": "string",
+      "type": "readout"
     }
   ]
 }

@@ -18,6 +18,8 @@
 #include <string.h>
 
 #define SR 44100
+/* the version shown on SETUP, from the running code (not the skin), so a stale copy of the skin or plugin shows */
+#define CS_VERSION "1.1.4"
 #define TAP_MS 600            /* a screen tap holds its chord this long */
 #define QUIET_MS 500          /* ignore slot "taps" this long after create/state load (host restoring values) */
 #define NUM_IDS (128 + NUM_SLOTS)   /* input notes, then one id per screen slot */
@@ -268,6 +270,43 @@ static void release_latched(inst_t *s, int except) {
         if (id != except && s->held[id].active && s->held[id].latched) release(s, id);
 }
 
+/* MPC (seen on a Live III, OS 3.10.1) tracks notes by number across ports and channels: a chord note with the
+ * same number as a key being held merges with that key, and the key's note-off is lost (the chord hangs until
+ * ALL NOTES OFF). So a chord never sends the number of a key that is down: that note moves an octave. */
+static int key_down(const inst_t *s, int n) {
+    return n >= 0 && n < 128 && ((s->held[n].active && !s->held[n].latched) || s->thru_ch[n] >= 0);
+}
+
+/* where note i of h goes instead of a held key's number: an octave up or down (two if need be), preferring one
+ * the chord doesn't already have; -1 if nowhere is free */
+static int dodge(const inst_t *s, const held_t *h, int i) {
+    static const int TRY[4] = {12, -12, 24, -24};
+    int fallback = -1;
+    for (int t = 0; t < 4; t++) {
+        int n = h->note[i] + TRY[t], dup = 0;
+        if (n < 0 || n > 127 || key_down(s, n)) continue;
+        for (int j = 0; j < h->n; j++) if (j != i && h->note[j] == n && h->ch[j] == h->ch[i]) dup = 1;
+        if (!dup) return n;
+        if (fallback < 0) fallback = n;
+    }
+    return fallback;
+}
+
+/* a key just went down: chords already sounding move off its number (off, then on an octave away) */
+static void clear_key(inst_t *s, int key) {
+    for (int id = 0; id < NUM_IDS; id++) {
+        held_t *h = &s->held[id];
+        if (!h->active || id == key) continue;
+        for (int i = 0; i < h->n; i++) {
+            if (h->note[i] != key) continue;
+            int n = dodge(s, h, i);
+            if (n < 0) continue;
+            if (h->sent & (1u << i)) { note_off(s, h->ch[i], key); note_on(s, h->ch[i], n, h->vel); }
+            h->note[i] = n;
+        }
+    }
+}
+
 /* id: the input note (or 128 + slot for a tap); slot: the screen tile to light (-1: none);
  * shift: octaves added after voicing (upper pad rows, keys); fl: spelling, -1 = the key's */
 static void play_chord(inst_t *s, int id, int slot, const chord_t *c, int shift, int vel, long release_at, int fl) {
@@ -301,6 +340,13 @@ static void play_chord(inst_t *s, int id, int slot, const chord_t *c, int shift,
             if (n < 0 || n > 127) continue;
             h->ch[h->n] = (unsigned char)(s->p[P_BASS] && i == 0 && v.n > 1 ? bass_ch : ch);
             h->note[h->n++] = n;
+        }
+    for (int i = 0; i < h->n; i++)
+        if (key_down(s, h->note[i])) { int n = dodge(s, h, i); if (n >= 0) h->note[i] = n; }
+    for (int i = 1; i < h->n; i++)   /* back in pitch order (strum, arp), each note keeping its channel */
+        for (int j = i; j > 0 && h->note[j] < h->note[j - 1]; j--) {
+            int t = h->note[j]; h->note[j] = h->note[j - 1]; h->note[j - 1] = t;
+            unsigned char c = h->ch[j]; h->ch[j] = h->ch[j - 1]; h->ch[j - 1] = c;
         }
     long gap = (long)s->p[P_STRUM] * SR / 1000, step = step_frames(s);
     h->step_len = step;
@@ -532,6 +578,7 @@ static void midi(void *inst, const uint8_t *msg, int len) {
     }
     s->in_ch = msg[0] & 15;
     release_latched(s, -1);
+    clear_key(s, note);
     if (s->p[P_INPUT] == IN_BUTTONS) {
         held_t *h = &s->held[note];
         h->root_kind = s->p[P_PAD_BTNS] && d >= NUM_SLOTS && d < 2 * NUM_SLOTS ? 2 : 1;
@@ -634,6 +681,7 @@ static int get_param(void *inst, const char *key, char *buf, int len) {
     inst_t *s = inst;
     int i = find_param(key), sl;
     if (i >= 0) return snprintf(buf, len, "%d", s->p[i]) + 1;
+    if (!strcmp(key, "version")) return snprintf(buf, len, "VERSION %s", CS_VERSION) + 1;
     if ((sl = slot_index(key, "")) >= 0) {   /* a tile: "3  Em7", the key letter instead on the white keys */
         static const char *const WHITE[NUM_SLOTS] = {"C", "D", "E", "F", "G", "A", "B", "8"};
         chord_t c;
